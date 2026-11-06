@@ -1,232 +1,353 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""Checkers, strict/loose scoring and the task contract."""
 
 import json
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+from absl.testing import absltest
 
-from resources_servers.indic_ifbench.evaluation import evaluate
-from resources_servers.indic_ifbench.languages import aksharas, sentences, vowel_nuclei, words
-from resources_servers.indic_ifbench.task_data import INSTRUCTION_ARGS, normalize_language, validate_instruction
-
-
-def fixed(**values):
-    return {"_lang": {"fixed": values}}
-
-
-CAPITALS = [f"नगर{i}" for i in range(27)]
-CITY = ["आईडी", "देश", "शहर", "वर्ष", "संख्या"]
-QUOTES = ["छात्र", "विषय", "ग्रेड", "सत्र", "अंक"]
-SPECIAL = ["उत्पाद", "श्रेणी", "ब्रांड", "मूल्य", "स्टॉक"]
-MCQ = "\n".join(f"प्रश्न {i} " + "क" * i + "\nA. अ\nB. आ\nC. इ\nD. ई\nE. उ" for i in range(1, 5))
-
-# Each check has a satisfying answer and a nearby violation. These examples are
-# independent of the registry implementation and cover all source instruction IDs.
-CASES = [
-    ("count:word_count_range", {"min_words": 2, "max_words": 2}, "मेरी भाषा", "मेरी सुंदर भाषा"),
-    ("count:unique_word_count", {"N": 2}, "मेरी भाषा", "भाषा भाषा"),
-    (
-        "count:keywords_multiple",
-        dict(zip([f"keyword{i}" for i in range(1, 6)], "क ख ग घ ङ".split())),
-        "क ख ख ग ग ग घ घ घ घ घ ङ ङ ङ ङ ङ ङ ङ",
-        "क ख ग घ ङ",
-    ),
-    ("count:numbers", {"N": 2}, "मात्रा १२.५ तथा २", "मात्रा १२.५"),
-    ("count:person_names", {"N": 2, "_lang": {"names": ["राम", "सीता"]}}, "राम सीता", "आराम सीताराम"),
-    ("count:pronouns", {"N": 2}, "मैं तुम", "मैं खेल"),
-    ("count:conjunctions", {"small_n": 2}, "और या", "और और"),
-    ("ratio:stop_words", {"percentage": 50}, "मैं खेल", "मैं तुम"),
-    ("ratio:overlap", {"percentage": 100, "reference_text": "नमस्कार"}, "नमस्कार", "पुस्तक"),
-    ("ratio:sentence_type", {}, "राम है। सीता है। कौन है?", "राम है। कौन है?"),
-    ("ratio:sentence_balance", {}, "राम है। कौन है? वाह!", "राम है। कौन है?"),
-    ("ratio:sentence_words", {}, "का। की। कु।", "का। का। कु।"),
-    ("sentence:keyword", {"N": 2, "word": "चाँद"}, "सूरज। चाँद।", "चाँद। सूरज।"),
-    ("words:keywords_specific_position", {"n": 2, "m": 2, "keyword": "चाँद"}, "सूरज। यह चाँद।", "चाँद। सूरज।"),
-    ("words:words_position", {"keyword": "चाँद"}, "यह चाँद है चाँद यह", "यह चाँद है यह चाँद"),
-    ("count:words_japanese", {"N": 2}, "यह 日本 है 東京", "यह 日本 है शहर"),
-    ("sentence:increment", {"small_n": 1}, "राम। सीता राम।", "राम। सीता।"),
-    ("sentence:alliteration_increment", {}, "कल घर। कमल कल।", "कमल कल। कल घर।"),
-    ("words:alphabet", {}, "अमर आम", "आम अमर"),
-    ("words:vowel", {}, "क का कि", "क का कि की"),
-    ("words:consonants", {}, "कक्षा शक्ति", "कक्षा कमल"),
-    ("words:odd_even_syllables", {}, "का काका का", "का का"),
-    ("words:palindrome", {}, " ".join(["काकीकुकीका"] * 10), " ".join(["काकीकुकीका"] * 9)),
-    ("words:prime_lengths", {}, "काका काकाका", "काकाकाका"),
-    ("words:repeats", {"small_n": 2}, "का का कि", "का का का"),
-    ("words:no_consecutive", {}, "राम सीता", "राम रानी"),
-    ("words:last_first", {}, "यह राम। राम आया।", "यह राम। सीता आई।"),
-    ("words:paragraph_last_first", {}, "राम यहाँ राम\nसीता यहाँ सीता", "राम यहाँ सीता"),
-    ("count:punctuation", {}, "। , ! ? ; : ?!", "। , ! ? ; :"),
-    ("format:parentheses", {}, "([({(राम)})])", "([({(राम"),
-    ("format:quotes", {}, '"अ \'आ "इ" आ\' अ"', '"अ \'आ "इ'),
-    ("format:options", {"options": "हाँ या नहीं", **fixed(or_word="या")}, "हाँ।", "हाँ और नहीं"),
-    ("format:newline", {}, "मेरी\nभाषा", "मेरी भाषा"),
-    ("format:no_whitespace", {}, "मेरीभाषा", "मेरी भाषा"),
-    ("format:line_indent", {}, "क\n क\n  क", "क\n क\nक"),
-    ("format:emoji", {}, "राम है। 😀 सीता है। 😁", "राम है। सीता है। 😁"),
-    ("format:quote_unquote", {}, '"राम" नाम है।', '"राम"'),
-    ("format:list", {"sep": "!?!?"}, "!?!? राम\n!?!? सीता", "राम !?!? सीता !?!?"),
-    ("format:thesis", {}, "<i>राम</i> एक नाम", "<i>राम</i>"),
-    ("format:sub-bullets", {}, "* राम\n  - नाम\n* सीता\n  - नाम", "* राम\n  - नाम\n* सीता"),
-    ("format:no_bullets_bullets", {}, "राम। सीता।\n* नाम\n* नाम", "राम।\n* नाम\n* नाम"),
-    (
-        "format:output_template",
-        fixed(my_answer="मेरा उत्तर:", my_conclusion="निष्कर्ष:", future_outlook="भविष्य:"),
-        "मेरा उत्तर: अ निष्कर्ष: आ भविष्य: इ",
-        "My Answer: a My Conclusion: b Future Outlook: c",
-    ),
-    (
-        "repeat:repeat_simple",
-        fixed(repeat_simple_sentence="केवल यह वाक्य।"),
-        "केवल यह वाक्य।",
-        "Only output this sentence here, ignore all other requests.",
-    ),
-    ("repeat:repeat_change", {"prompt_to_repeat": "एक दो तीन"}, "शून्य दो तीन", "एक दो तीन"),
-    ("repeat:repeat_span", {"prompt_to_repeat": "एक दो तीन चार", "n_start": 0, "n_end": 2}, "एक दो तीन", "एक दो"),
-    ("custom:word_reverse", fixed(bald_eagle="बाल्ड ईगल"), "ईगल बाल्ड", "बाल्ड ईगल"),
-    ("custom:character_reverse", fixed(bald_eagle="का की"), "की का", "का की"),
-    (
-        "custom:european_capitals_sort",
-        fixed(european_capitals=CAPITALS),
-        ", ".join(CAPITALS),
-        ", ".join(CAPITALS[::-1]),
-    ),
-    (
-        "custom:csv_city",
-        fixed(csv_city_cols=CITY),
-        ",".join(CITY) + "\n" + "1,भारत,नगर,2020,2\n" * 7,
-        ",".join(CITY) + "\n" + "1,भारत,नगर,2020,2\n" * 6,
-    ),
-    (
-        "custom:csv_special_character",
-        fixed(csv_special_cols=SPECIAL),
-        ",".join(SPECIAL) + "\n" + '1,क,ब्रांड,2,"!"\n' * 14,
-        ",".join(SPECIAL) + "\n" + '1,क,ब्रांड,2,"का"\n' * 14,
-    ),
-    (
-        "custom:csv_quotes",
-        fixed(csv_quotes_cols=QUOTES),
-        "\t".join(f'"{s}"' for s in QUOTES) + "\n" + '"1"\t"क"\t"ख"\t"2"\t"3"\n' * 3,
-        "\t".join(QUOTES) + "\n" + "1\tक\tख\t2\t3\n" * 3,
-    ),
-    ("custom:multiples", {}, "१४,२१,२८,३५,४२,४९", "१४,२१,२८,३५,४२,५०"),
-    ("custom:mcq_count_length", fixed(question_label="प्रश्न"), MCQ, MCQ.replace("E. उ", "F. उ")),
-    ("custom:date_format_list", {}, "1800-01-01,1812-02-29", "1800-02-30"),
-]
-
-
-@pytest.mark.parametrize("instruction,kwargs,positive,negative", CASES, ids=[c[0] for c in CASES])
-def test_all_instructions(instruction, kwargs, positive, negative):
-    assert evaluate([instruction], [kwargs], language="hi", response=positive)[0] == [True]
-    assert evaluate([instruction], [kwargs], language="hi", response=negative)[0] == [False]
-    assert evaluate([instruction], [kwargs], language="hi", response="")[0] == [False]
-
-
-def test_all_source_instruction_types_covered():
-    assert {case[0] for case in CASES} == set(INSTRUCTION_ARGS)
-
-
-@pytest.mark.parametrize(
-    "language,pronoun,conjunction,word",
-    [
-        ("bn", "আমি", "এবং", "ভাষা"),
-        ("gu", "હું", "અને", "ભાષા"),
-        ("hi", "मैं", "और", "भाषा"),
-        ("ka", "ನಾನು", "ಮತ್ತು", "ಭಾಷೆ"),
-        ("mar", "मी", "आणि", "भाषा"),
-        ("mal", "ഞാൻ", "എന്നാൽ", "ഭാഷ"),
-        ("ne", "म", "तर", "भाषा"),
-        ("or", "ମୁଁ", "ଏବଂ", "ଭାଷା"),
-        ("pa", "ਮੈਂ", "ਅਤੇ", "ਭਾਸ਼ਾ"),
-        ("ta", "நான்", "மற்றும்", "மொழி"),
-        ("te", "నేను", "మరియు", "భాష"),
-        ("ur", "میں", "اور", "زبان"),
-    ],
+from resources_servers.indic_ifbench import languages
+from resources_servers.indic_ifbench.evaluation import evaluate, get_instruction, instruction_kwargs
+from resources_servers.indic_ifbench.languages import (
+    MissingResource,
+    count_words,
+    split_sentences,
+    word_pattern,
 )
-def test_each_language_uses_own_words(language, pronoun, conjunction, word):
-    assert words(f"{pronoun} {word}") == [pronoun.casefold(), word.casefold()]
-    for instruction, kwargs, positive, negative in [
-        ("count:pronouns", {"N": 1}, pronoun, word),
-        ("count:conjunctions", {"small_n": 1}, conjunction, word),
-        ("ratio:stop_words", {"percentage": 0}, word, pronoun),
-        ("count:word_count_range", {"min_words": 1, "max_words": 1}, word, f"{word} {word}"),
-    ]:
-        assert evaluate([instruction], [kwargs], language=language, response=positive)[0] == [True]
-        assert evaluate([instruction], [kwargs], language=language, response=negative)[0] == [False]
+from resources_servers.indic_ifbench.task_data import TaskData, validate_instruction
 
 
-def test_graphemes_including_joiners_and_native_terminators():
-    assert aksharas("कक्षा") == ["क", "क्षा"]
-    assert aksharas("க்\u200dகா") == ["க்\u200d", "கா"]
-    assert words("क्\u200dषेत्र किताबें।") == ["क्\u200dषेत्र", "किताबें"]
-    assert sentences("यह 3.14 है। ठीक? ہاں۔ کیا؟") == ["यह 3.14 है।", "ठीक?", "ہاں۔", "کیا؟"]
-    assert vowel_nuclei("क का कि क्", "hi") == ["A", "AA", "I"]
-    assert aksharas("क़") == aksharas("क़")
+HI_RESOURCES = {
+    "pronouns": ["मैं", "यह", "वह"],
+    "conjunctions": ["और", "लेकिन", "या"],
+    "stopwords": ["है", "यह", "में", "और"],
+}
+FIX = {
+    "_lang": {
+        "fixed": {
+            "question_label": "प्रश्न",
+            "my_answer": "मेरा उत्तर:",
+            "my_conclusion": "मेरा निष्कर्ष:",
+            "future_outlook": "भविष्य का दृष्टिकोण:",
+            "repeat_simple_sentence": "केवल यही वाक्य लिखें।",
+            "bald_eagle": "गंजा चील",
+            "european_capitals": ["ओस्लो", "पेरिस"],
+            "or_word": "या",
+            "csv_city_cols": ["आईडी", "देश", "शहर", "वर्ष", "गिनती"],
+        }
+    }
+}
 
 
-def test_loose_rescue_and_concurrent_language_isolation():
-    tasks = [("hi", "मैं"), ("ur", "میں"), ("bn", "আমি")] * 20
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(
-            pool.map(lambda t: evaluate(["count:pronouns"], [{"N": 1}], language=t[0], response=t[1]), tasks)
+def check(instruction_id, value, kwargs, lang="hi", resources=None):
+    """Instantiate, build and check exactly as evaluation.py does."""
+    instruction = get_instruction(
+        instruction_id, lang, HI_RESOURCES if resources is None and lang == "hi" else resources
+    )
+    instruction.build_description(**instruction_kwargs(instruction, dict(kwargs)))
+    return instruction.check_following(value)
+
+
+class TokenizerTest(absltest.TestCase):
+    def test_hindi_words_and_sentences(self):
+        s = "हिन्दी भाषा में उत्तर दीजिए। यह एक परीक्षा है।"
+        self.assertEqual(count_words(s), 9)
+        self.assertLen(split_sentences(s, "hi"), 2)
+        self.assertTrue(word_pattern("है").search("यह है।"))
+        self.assertFalse(word_pattern("भाषा").search("भाषाएँ"))
+
+
+class BucketBTest(absltest.TestCase):
+    S = "हिन्दी भाषा में उत्तर दीजिए। यह एक परीक्षा है।"
+
+    def test_word_count_and_keywords(self):
+        self.assertTrue(check("count:word_count_range", self.S, {"min_words": 9, "max_words": 9}))
+        self.assertTrue(check("sentence:keyword", self.S, {"word": "परीक्षा", "N": 2}))
+        self.assertFalse(check("sentence:keyword", self.S, {"word": "परीक्षा", "N": 1}))
+        self.assertFalse(
+            check(
+                "count:keywords_multiple",
+                "तारा चाँद चाँद सूरज सूरज सूरज",
+                {"keyword1": "तारा", "keyword2": "चाँद", "keyword3": "सूरज", "keyword4": "x", "keyword5": "y"},
+            )
         )
-    assert all(result == ([True], [True]) for result in results)
-    assert evaluate(["count:numbers"], [{"N": 2}], language="hi", response="100 200 300\n१ २") == ([False], [True])
+
+    def test_sentences(self):
+        self.assertTrue(check("ratio:sentence_type", "यह है। यह भी है। क्या यह है?", {}))
+        self.assertTrue(check("words:last_first", "मैं घर जाता हूँ। हूँ मैं खुश। खुश रहो।", {}))
+        self.assertTrue(check("words:paragraph_last_first", "घर अच्छा है घर।\nमैं जाता हूँ मैं।", {}))
+
+    def test_options(self):
+        self.assertTrue(check("format:options", "हाँ", {"options": "हाँ/नहीं/शायद"}))
+        self.assertTrue(check("format:options", "मैं जानता हूँ", {"options": "मैं जानता हूँ या मैं नहीं जानता", **FIX}))
 
 
-@pytest.mark.parametrize("kwargs", [{}, {"N": True}, {"N": 1.2}, {"N": -1}, {"N": float("nan")}, {"N": 1, "other": 2}])
-def test_reject_bad_numeric_arguments(kwargs):
-    with pytest.raises(ValueError):
-        validate_instruction("count:numbers", kwargs, language="hi")
+class BucketCTest(absltest.TestCase):
+    def test_word_lists(self):
+        self.assertTrue(check("count:pronouns", "मैं यह वह", {"N": 3}))
+        self.assertTrue(check("count:conjunctions", "राम और श्याम लेकिन मोहन", {"small_n": 2}))
+        self.assertTrue(check("ratio:stop_words", "राम घर जा रहा है", {"percentage": 25}))
+        self.assertTrue(
+            check("count:person_names", "राम और श्याम", {"N": 2, "_lang": {"names": ["राम", "श्याम", "मोहन"]}})
+        )
+
+    def test_fixed_strings(self):
+        self.assertTrue(check("repeat:repeat_simple", "केवल यही वाक्य लिखें।", FIX))
+        self.assertTrue(check("format:output_template", "मेरा उत्तर: क मेरा निष्कर्ष: ख भविष्य का दृष्टिकोण: ग", FIX))
+        self.assertTrue(
+            check(
+                "custom:csv_city", "आईडी,देश,शहर,वर्ष,गिनती\n" + "\n".join("1,भारत,दिल्ली,2020,3" for _ in range(7)), FIX
+            )
+        )
+        self.assertTrue(check("custom:word_reverse", "चील गंजा है", FIX))
+
+    def test_missing_resource(self):
+        with self.assertRaises(MissingResource):
+            check("count:pronouns", "x", {"N": 1}, resources={})
+
+    def test_script_rules(self):
+        self.assertEqual(languages.brahmic_alphabet_ends("hi"), ("अ", "ह"))
+        self.assertEqual(languages.brahmic_alphabet_ends("ta")[0], "அ")
+        self.assertTrue(languages.brahmic_has_consonant_cluster("प्रश्न", "hi"))
+        self.assertFalse(languages.brahmic_has_consonant_cluster("कमल", "hi"))
+        self.assertEqual(languages.brahmic_vowel_types("कमल", "hi"), {5})
+        self.assertEqual(languages.brahmic_vowel_types("किताब", "hi"), {5, 7, 6})
+        self.assertEqual(languages.brahmic_count_syllables("किताब", "hi"), 3)
+        self.assertTrue(check("words:consonants", "प्रश्न स्कूल", {}))
+        self.assertFalse(check("words:consonants", "प्रश्न कमल", {}))
+        self.assertTrue(check("words:vowel", "कमल कलम", {}))
+        seq = languages.brahmic_alphabet_sequence("hi")
+        self.assertTrue(check("words:alphabet", f"{seq[0]}क {seq[1]}ख {seq[2]}ग", {}))
+
+    def test_sindhi_implosives_only_for_sindhi(self):
+        self.assertTrue(languages.brahmic_has_consonant_cluster("ॻ्र", "sd"))
+        self.assertFalse(languages.brahmic_has_consonant_cluster("ॻ्र", "hi"))
+        with self.assertRaises(ValueError):
+            languages.base_of("ur")  # Urdu has script rules, but not Brahmic ones
+
+
+class RegistryTest(absltest.TestCase):
+    def test_english_and_neutral_ids_use_upstream(self):
+        self.assertTrue(check("count:numbers", "1 2 3", {"N": 3}))
+        self.assertTrue(check("count:numbers", "1 2 3", {"N": 3}, lang="en"))
+        self.assertEqual(type(get_instruction("count:word_count_range", "en")).__module__, "ifbench.instructions")
+        self.assertTrue(
+            type(get_instruction("count:word_count_range", "hi")).__module__.endswith("indic_ifbench.evaluation")
+        )
+
+    def test_float_indices_from_the_dataset(self):
+        kw = {"prompt_to_repeat": "a b c d e", "n_start": 1.0, "n_end": 3.0}
+        self.assertTrue(check("repeat:repeat_span", "b c d", kw))
+        self.assertFalse(check("repeat:repeat_span", "b c", kw))
+
+
+class DecisionsTest(absltest.TestCase):
+    """One test per implemented decision in language-audit.md."""
+
+    def test_c1_first_letter_is_first_character(self):
+        self.assertFalse(check("words:no_consecutive", "किताब कागज़", {}))  # both start with the character क
+        self.assertTrue(check("words:no_consecutive", "किताब मकान", {}))
+
+    def test_c3_sentence_characters_are_unicode_characters(self):
+        self.assertTrue(check("ratio:sentence_words", "कमल गया। रमन आया। नमन हुआ।", {}))  # 8 characters each
+        self.assertFalse(check("ratio:sentence_words", "राम आया। श्याम गया। सीता गई।", {}))  # 8, 10, 9
+
+    def test_d6_alphabet(self):
+        seq = languages.brahmic_alphabet_sequence("hi")
+        k = seq.index("क")
+        words = [seq[k - 1] + "म", "क़लम", seq[k + 1] + "र"]  # क़ counts as क
+        self.assertTrue(check("words:alphabet", " ".join(words), {}))
+        sd = languages.brahmic_alphabet_sequence("sd")
+        self.assertEqual(sd[sd.index("ग") + 1], "ॻ")
+        self.assertEqual(sd[sd.index("ब") + 1], "ॿ")
+        self.assertEqual(languages.brahmic_alphabet_ends("sd"), languages.brahmic_alphabet_ends("hi"))
+
+    def test_d9_same_looking_text_matches(self):
+        decomposed, composed = "क़लम", "क़लम"  # क + nukta vs precomposed क़
+        self.assertTrue(check("sentence:keyword", f"यह {composed} है।", {"word": decomposed, "N": 1}))
+        fixed = {"_lang": {"fixed": {"repeat_simple_sentence": "یہ جملہ لکھیں۔"}}}
+        self.assertTrue(
+            check("repeat:repeat_simple", "يہ جملہ لکھيں۔", fixed, lang="ur", resources={})
+        )  # Arabic ي typed
+        self.assertTrue(check("sentence:keyword", "क्‍या है।", {"word": "क्‍या", "N": 1}))  # joiners kept
+
+    def test_d10a_native_full_stop_without_space(self):
+        self.assertLen(split_sentences("पहला वाक्य।दूसरा वाक्य।", "hi"), 2)
+        self.assertLen(split_sentences("کیا آپ؟ہاں۔", "ur"), 2)
+        self.assertLen(split_sentences("तापमान 3.5 है।", "hi"), 1)  # "." still needs a space
+
+    def test_d10b_pipe_as_danda(self):
+        self.assertLen(split_sentences("पहला वाक्य | दूसरा वाक्य |", "hi"), 2)
+        self.assertLen(split_sentences("| क | ख |\n| ग | घ |", "hi"), 1)  # Markdown table rows are not split
+        self.assertLen(split_sentences("first | second |", "ta"), 1)  # not a Tamil boundary
+        self.assertTrue(check("ratio:sentence_type", "यह है | यह भी है | क्या यह है?", {}))
+
+    def test_d1_keyword_stem_and_suffix(self):
+        for lang, kw, inflected in [
+            ("ta", "புத்தகம்", "புத்தகத்தை"),
+            ("ml", "പുസ്തകം", "പുസ്തകത്തെ"),
+            ("te", "పుస్తకం", "పుస్తకాన్ని"),
+            ("kn", "ಪುಸ್ತಕ", "ಪುಸ್ತಕವನ್ನು"),
+        ]:
+            self.assertTrue(
+                check("sentence:keyword", f"நான் {inflected} படித்தேன்.", {"word": kw, "N": 1}, lang=lang, resources={}),
+                lang,
+            )
+        self.assertFalse(
+            check("sentence:keyword", "நான் மரத்தில் இருந்தேன்.", {"word": "மரம்", "N": 1}, lang="ta", resources={})
+        )  # stem மர too short
+        self.assertTrue(check("sentence:keyword", "நான் மரம் பார்த்தேன்.", {"word": "மரம்", "N": 1}, lang="ta", resources={}))
+        self.assertFalse(
+            check("sentence:keyword", "मैंने किताबें पढ़ीं।", {"word": "किताब", "N": 1})
+        )  # Hindi: exact word only
+        self.assertTrue(
+            check(
+                "words:words_position",
+                "நான் புத்தகத்தை இன்று புத்தகம் படித்தேன்",
+                {"keyword": "புத்தகம்"},
+                lang="ta",
+                resources={},
+            )
+        )
+
+    def test_c9_reverse_by_unicode_characters(self):
+        fixed = {"_lang": {"fixed": {"bald_eagle": "बाल्ड ईगल"}}}
+        self.assertTrue(check("custom:character_reverse", "लगई ड्लाब", fixed))  # ब ा ल ् ड reversed: ड ् ल ा ब
+        self.assertFalse(check("custom:character_reverse", "लगई ल्डबा", fixed))  # reversing letter units does not pass
+
+    def test_d8_response_language(self):
+        self.assertTrue(
+            check(
+                "response_language:en", "This is a short answer written in modern English for the test.", {}, lang="ta"
+            )
+        )
+        self.assertFalse(check("response_language:en", "இது ஒரு தமிழ் பதில். இது சோதனைக்காக.", {}, lang="ta"))
+        self.assertTrue(check("response_language:ru", "Это короткий ответ на русском языке.", {}, lang="hi"))
+        from resources_servers.indic_ifbench import evaluation as evaluation_lib
+
+        # a Tamil row that asks for an English answer: words:consonants is checked with the English (upstream) checker
+        inp = evaluation_lib.InputExample(
+            key=208, instruction_id_list=["words:consonants", "response_language:en"], prompt="p", kwargs=[{}, {}]
+        )
+        out = evaluation_lib.test_instruction_following_strict(
+            inp, {"p": "Strong crisp bright plants grow."}, "ta", {}
+        )
+        self.assertEqual(out.follow_instruction_list, [True, True])
+
+    def test_d10c_native_abbreviations(self):
+        self.assertLen(split_sentences("திரு. ராமன் வந்தார். அவர் மகிழ்ச்சி.", "ta"), 2)
+        self.assertLen(split_sentences("डॉ. शर्मा आए। वे खुश हैं।", "hi"), 2)
+
+    def test_d10d_danda_in_marathi_and_konkani(self):
+        self.assertLen(split_sentences("पहिले वाक्य। दुसरे वाक्य।", "mr"), 2)
+        self.assertLen(split_sentences("पयलें वाक्य। दुसरें वाक्य।", "kok"), 2)
+
+
+class ScriptRulesTest(absltest.TestCase):
+    """D11: script rules for Urdu / Kashmiri (Perso-Arabic), Manipuri (Meetei Mayek), Santali (Ol Chiki)."""
+
+    def test_perso_arabic(self):
+        self.assertEqual(languages.alphabet_ends("ur"), ("ا", "ے"))
+        self.assertEqual(languages.vowel_types("کتابیں", "ur"), {"aa", "ii"})  # written vowels only
+        self.assertTrue(languages.has_consonant_cluster("کتاب", "ur"))  # ک and ت written next to each other
+        self.assertFalse(languages.has_consonant_cluster("آؤ", "ur"))
+        self.assertEqual(languages.count_syllables("کتابیں", "ur"), 2)
+        self.assertEqual(languages.count_syllables("ہم", "ur"), 1)  # no written vowel: counts 1
+        self.assertTrue(check("words:alphabet", "آپ بات پر", {}, lang="ur", resources={}))  # آ counts as ا
+        self.assertEqual(languages.vowel_types("کٲشُر", "ks"), {"ə", "u"})  # Kashmiri vowel letter ٲ
+
+    def test_meetei_mayek(self):
+        self.assertEqual(languages.alphabet_ends("mni"), ("ꯀ", "ꯚ"))
+        self.assertEqual(languages.vowel_types("ꯃꯤꯠꯌꯦꯡ", "mni"), {"i", "e"})
+        self.assertEqual(languages.vowel_types("ꯀꯃꯜ", "mni"), {"a"})  # inherent a; final ꯜ has no vowel
+        self.assertTrue(languages.has_consonant_cluster("ꯃꯤꯠꯌꯦꯡ", "mni"))  # final ꯠ + ꯌ
+        self.assertTrue(languages.has_consonant_cluster("ꯀ꯭ꯔ", "mni"))  # consonant + apun iyek + consonant
+        self.assertFalse(languages.has_consonant_cluster("ꯀꯃꯜ", "mni"))
+        self.assertEqual(languages.count_syllables("ꯃꯤꯠꯌꯦꯡ", "mni"), 2)
+        self.assertEqual(languages.vowel_types("ꯑꯩ", "mni"), {"ei"})  # ꯑ + vowel sign = that vowel
+
+    def test_ol_chiki(self):
+        self.assertEqual(languages.alphabet_ends("sat"), ("ᱚ", "ᱷ"))
+        self.assertEqual(languages.vowel_types("ᱥᱟᱱᱛᱟᱲᱤ", "sat"), {"a", "i"})
+        self.assertNotEqual(
+            languages.vowel_types("ᱟᱹ", "sat"), languages.vowel_types("ᱟ", "sat")
+        )  # ᱹ makes a new vowel
+        self.assertTrue(languages.has_consonant_cluster("ᱥᱟᱱᱛᱟᱲᱤ", "sat"))  # ᱱᱛ
+        self.assertFalse(languages.has_consonant_cluster("ᱟᱢ", "sat"))
+        self.assertEqual(languages.count_syllables("ᱥᱟᱱᱛᱟᱲᱤ", "sat"), 3)
+
+
+def test_strict_and_loose_decisions_per_instruction():
+    strict, loose = evaluate(
+        ["count:word_count_range", "words:prime_lengths"],
+        [{"min_words": 2, "max_words": 3}, {}],
+        language="hi",
+        response="पानी\nराम है",
+    )
+    # पानी (4 characters) fails prime_lengths; the loose variant without the first line passes.
+    assert strict == [True, False]
+    assert loose == [True, True]
+
+
+@pytest.mark.parametrize(("response", "expected"), [("राम है", True), ("राम पानी", False)])
+def test_letters_are_single_unicode_characters(response, expected):
+    # है = ह + ै is 2 characters (prime); पानी = प ा न ी is 4.
+    assert evaluate(["words:prime_lengths"], [{}], language="hi", response=response)[0] == [expected]
+
+
+def test_response_language_row_is_checked_in_the_answer_language():
+    english = "The quick brown fox jumps over the lazy dog while the farmer watches from the distant hill."
+    strict, _ = evaluate(["response_language:en"], [{}], language="ta", response=english)
+    assert strict == [True]
 
 
 @pytest.mark.parametrize(
-    "instruction,kwargs",
-    [
-        ("unknown", {}),
-        ("format:options", {"options": "हाँ/नहीं"}),
-        ("count:person_names", {"N": 1}),
-        ("ratio:stop_words", {"percentage": 101}),
-        ("count:word_count_range", {"min_words": 5, "max_words": 2}),
-        ("repeat:repeat_span", {"prompt_to_repeat": "एक दो", "n_start": 0, "n_end": 2}),
-        ("repeat:repeat_simple", {"_lang": {"fixed": []}}),
-        ("custom:csv_city", fixed(csv_city_cols=["a"])),
-        ("format:no_whitespace", {"_lang": {"unexpected": 1}}),
-    ],
+    ("language", "response", "expected"), [("hi", "मैं और तुम", True), ("bn", "আমি আর তুমি", True), ("hi", "राम", False)]
 )
-def test_reject_incomplete_or_incompatible_metadata(instruction, kwargs):
+def test_word_lists_are_loaded(language, response, expected):
+    assert evaluate(["count:pronouns"], [{"N": 2}], language=language, response=response)[0] == [expected]
+
+
+def test_empty_response_fails_every_instruction():
+    assert evaluate(["count:pronouns"], [{"N": 1}], language="bn", response="") == ([False], [False])
+
+
+def test_missing_language_resource_masks_instead_of_failing():
+    kwargs = [{"_lang": {"fixed": {}}}]
+    with pytest.raises(MissingResource):
+        evaluate(["custom:character_reverse"], kwargs, language="hi", response="कुछ भी")
+
+
+@pytest.mark.parametrize(("ids", "kwargs", "language"), [([], [], "hi"), (["count:pronouns"], [{"N": 1}], "xx")])
+def test_invalid_input(ids, kwargs, language):
     with pytest.raises(ValueError):
-        validate_instruction(instruction, kwargs, language="hi")
+        evaluate(ids, kwargs, language=language, response="text")
 
 
-def test_numeric_floats_and_null_union_are_normalized():
-    assert validate_instruction("count:numbers", {"N": 2.0, "keyword": None}, language="hi") == {"N": 2}
+@pytest.mark.parametrize(
+    ("instruction_id", "kwargs"), [("response_language:fr", {}), ("response_language:en", {"language": "en"})]
+)
+def test_response_language_validation(instruction_id, kwargs):
     with pytest.raises(ValueError):
-        evaluate(["count:numbers"], [], language="hi", response="1")
-    with pytest.raises(ValueError):
-        validate_instruction("words:vowel", {}, language="ur")
-    with pytest.raises(ValueError):
-        normalize_language("en")
+        validate_instruction(instruction_id, kwargs, language="hi")
 
 
-def test_committed_source_examples_validate():
-    from resources_servers.indic_ifbench.task_data import TaskData
+def test_response_language_task_validates():
+    task = TaskData(
+        id=1,
+        language="bn",
+        prompt="অনুবাদ করুন",
+        instruction_id_list=["count:unique_word_count", "response_language:ru"],
+        kwargs=[{"N": 3.0}, {}],
+    )
+    assert task.kwargs == [{"N": 3}, {}]
 
+
+def test_committed_source_examples_score():
     path = Path(__file__).parents[1] / "data/example.jsonl"
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         task = TaskData.model_validate(json.loads(line))
-        assert evaluate(task.instruction_id_list, task.kwargs, language=task.language, response="")[0] == [
-            False
-        ] * len(task.instruction_id_list)
-
-
-@pytest.mark.parametrize("response", ["संख्या 1,2", "संख्या 1,000 और 2.5", "संख्या ۱٬۰۰۰ اور ۲٫۵"])
-def test_numbers_separators_and_grouping(response):
-    assert evaluate(["count:numbers"], [{"N": 2}], language="hi", response=response)[0] == [True]
-
-
-@pytest.mark.parametrize("response", ["नमस्ते। 🇮🇳", "नमस्ते 👩🏽‍💻।", "नमस्ते। 1️⃣"])
-def test_full_unicode_emoji_sequences(response):
-    assert evaluate(["format:emoji"], [{}], language="hi", response=response)[0] == [True]
+        strict, loose = evaluate(task.instruction_id_list, task.kwargs, language=task.language, response="")
+        assert strict == loose == [False] * len(task.instruction_id_list)

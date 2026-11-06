@@ -4,7 +4,7 @@ experimental: true
 kind: benchmark
 integration_profile: custom-gym-verifier
 domain: instruction_following
-description: Indic IFBench in twelve languages with localized instruction checks
+description: Indic IFBench in fourteen languages with localized instruction checks
 modality: text
 licensing: unknown
 authors:

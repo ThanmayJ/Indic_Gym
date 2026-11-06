@@ -20,13 +20,14 @@ from resources_servers.indic_ifbench.task_data import EVALUATOR_VERSION, LANGUAG
 @pytest.fixture
 def source(tmp_path):
     for language in LANGUAGES:
-        path = tmp_path / "translation" / language / "train.jsonl"
+        path = tmp_path / "annotator" / language / "train.jsonl"
         path.parent.mkdir(parents=True)
         row = {
             "key": "3",
             "prompt": f"{language} १ २",
             "instruction_id_list": ["count:numbers"],
             "kwargs": [{"N": 2.0, "keyword": None}],
+            "verification": "verified",
         }
         path.write_text(json.dumps(row) + "\n")
     return tmp_path
@@ -35,16 +36,17 @@ def source(tmp_path):
 def test_prepare_all_languages_and_aliases(source):
     output = prep.prepare(dataset_dir=str(source), output_fpath=str(source / "out.jsonl"))
     rows = [json.loads(line) for line in output.read_text().splitlines()]
-    assert len(rows) == 12
-    assert len({row["id"] for row in rows}) == 12
-    assert len({row["uuid"] for row in rows}) == 12
+    assert len(rows) == len(LANGUAGES) == 14
+    assert len({row["id"] for row in rows}) == 14
+    assert len({row["uuid"] for row in rows}) == 14
+    assert rows[0]["metadata"]["verification"] == "verified"
     assert [row["language"] for row in rows] == list(LANGUAGES)
     assert rows[0]["kwargs"] == [{"N": 2}]
     audit = json.loads(output.with_suffix(".preparation.json").read_text())
     assert audit["rows_per_language"] == dict.fromkeys(LANGUAGES, 1)
     assert len(audit["sources"]["hi"]["sha256"]) == 64
     selected = prep.prepare(
-        dataset_dir=str(source / "translation"),
+        dataset_dir=str(source / "annotator"),
         languages=["ka", "mar", "mal"],
         output_fpath=str(source / "selected.jsonl"),
     )
@@ -65,7 +67,7 @@ def test_invalid_language_selection(source, languages):
 
 @pytest.mark.parametrize("corrupt", ["duplicate", "key", "empty", "kwargs"])
 def test_prepare_failure_preserves_output(source, corrupt):
-    file = source / "translation/ur/train.jsonl"
+    file = source / "annotator/ur/train.jsonl"
     row = json.loads(file.read_text())
     if corrupt == "duplicate":
         file.write_text(file.read_text() * 2)
@@ -150,3 +152,16 @@ def test_metrics_weight_instructions_and_languages_separately():
         summarize([row("hi", [], [])])
     with pytest.raises(ValueError, match="booleans"):
         summarize([row("hi", [True], [False])])
+
+
+def test_prepare_release_layout_and_rejects_unreviewed_rows(source):
+    release = source / "release" / "data" / "as" / "train.jsonl"
+    release.parent.mkdir(parents=True)
+    release.write_text((source / "annotator/as/train.jsonl").read_text())
+    output = prep.prepare(dataset_dir=str(source / "release"), languages=["as"], output_fpath=str(source / "as.jsonl"))
+    assert [json.loads(line)["language"] for line in output.read_text().splitlines()] == ["as"]
+    row = json.loads(release.read_text())
+    row["verification"] = "not_reviewed"
+    release.write_text(json.dumps(row) + "\n")
+    with pytest.raises(ValueError, match="not human-verified"):
+        prep.prepare(dataset_dir=str(source / "release"), languages=["as"], output_fpath=str(source / "as.jsonl"))

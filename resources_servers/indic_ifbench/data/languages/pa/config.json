@@ -1,0 +1,53 @@
+{
+  "language": "Punjabi",
+  "script": "gurmukhi",
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…",
+    "।",
+    "॥",
+    "|"
+  ],
+  "declarative_end": [
+    ".",
+    "।",
+    "॥",
+    "|"
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [
+    "।",
+    "॥"
+  ],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "ਡਾ",
+    "ਸ੍ਰੀ",
+    "ਸ਼੍ਰੀ",
+    "ਸ੍ਰੀਮਤੀ",
+    "ਪ੍ਰੋ",
+    "ਈ.ਪੂ",
+    "ਈ"
+  ],
+  "extra_consonants": [],
+  "abbreviations_reviewed": false
+}

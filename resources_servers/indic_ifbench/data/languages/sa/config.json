@@ -1,0 +1,49 @@
+{
+  "language": "Sanskrit",
+  "script": "devanagari",
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…",
+    "।",
+    "॥",
+    "|"
+  ],
+  "declarative_end": [
+    ".",
+    "।",
+    "॥",
+    "|"
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [
+    "।",
+    "॥",
+    "॰"
+  ],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "श्री",
+    "पृ"
+  ],
+  "extra_consonants": [],
+  "abbreviations_reviewed": false
+}

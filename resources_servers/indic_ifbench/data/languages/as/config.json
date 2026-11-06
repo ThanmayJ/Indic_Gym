@@ -1,0 +1,53 @@
+{
+  "language": "Assamese",
+  "script": "bengali",
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…",
+    "।",
+    "॥",
+    "|"
+  ],
+  "declarative_end": [
+    ".",
+    "।",
+    "॥",
+    "|"
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [
+    "।",
+    "॥"
+  ],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "ডা",
+    "ড",
+    "শ্ৰী",
+    "শ্ৰীমতী",
+    "খ্ৰী",
+    "খ্ৰী.পূ",
+    "পৃ"
+  ],
+  "extra_consonants": [],
+  "abbreviations_reviewed": false
+}

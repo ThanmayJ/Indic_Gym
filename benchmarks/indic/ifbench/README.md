@@ -1,54 +1,60 @@
 # Indic IFBench
 
-Evaluate the supplied AI4Bharat IFBench translations in NeMo Gym using the
-[Indic IFBench resources server](../../../resources_servers/indic_ifbench/README.md).
-The supplied `data/translation/<language>/train.jsonl` files are used as benchmark
-evaluation data. Their filename does not change their role in this integration.
+Evaluate [IndicIFBench](https://huggingface.co/datasets/ai4bharat/IndicIFBench) in NeMo Gym using the
+[Indic IFBench resources server](../../../resources_servers/indic_ifbench/README.md). The dataset is IFBench
+translated into Indian languages; every prompt was reviewed by a native speaker (`verification`: `verified` or
+`corrected`), and prompts marked incorrect without a usable correction were removed, so language sizes differ.
 
-| Requested code | Dataset code | Language | Supplied prompts |
+| Requested code | Dataset code | Language | Prompts |
 | --- | --- | --- | ---: |
-| bn | bn | Bengali | 288 |
-| gu | gu | Gujarati | 288 |
-| hi | hi | Hindi | 288 |
-| ka | kn | Kannada | 288 |
-| mar | mr | Marathi | 288 |
-| mal | ml | Malayalam | 288 |
-| ne | ne | Nepali | 288 |
-| or | or | Odia | 288 |
-| pa | pa | Punjabi | 288 |
-| ta | ta | Tamil | 288 |
-| te | te | Telugu | 288 |
-| ur | ur | Urdu | 252 |
+| bn | bn | Bengali | 279 |
+| gu | gu | Gujarati | 281 |
+| hi | hi | Hindi | 282 |
+| ka | kn | Kannada | 276 |
+| mar | mr | Marathi | 277 |
+| mal | ml | Malayalam | 275 |
+| ne | ne | Nepali | 258 |
+| or | or | Odia | 274 |
+| pa | pa | Punjabi | 281 |
+| ta | ta | Tamil | 271 |
+| te | te | Telugu | 246 |
+| ur | ur | Urdu | 267 |
+| as | as | Assamese | 280 |
+| sa | sa | Sanskrit | 275 |
 
-All twelve languages are selected by default: **3,420 tasks**. Missing languages
-or invalid rows cause preparation to fail. Unequal language counts are preserved;
-Urdu is not padded with nonexistent tasks. The source paths and SHA-256 checksums
-are recorded next to the prepared JSONL. Full source and prepared datasets remain
-local and gitignored; five representative requests are committed for smoke tests.
+All fourteen languages are selected by default: **3,822 tasks**. Preparation downloads the release
+from Hugging Face at a pinned commit (`SOURCE_REVISION` in `prepare.py`), or reads a local copy with `dataset_dir`.
+Missing languages, invalid rows or rows that were not human-reviewed cause preparation to fail. The source paths and
+SHA-256 checksums are recorded next to the prepared JSONL. Prepared datasets remain local and gitignored; five
+representative requests are committed for smoke tests. To compare languages on the same prompts, keep the
+`source_key`s present in every language compared.
 
 ## Prepare
 
-Run from the repository root. Preparation uses only the core Gym dependencies;
-the Unicode/emoji libraries are installed with the resources server at runtime:
+Run from the repository root. By default the release is downloaded from Hugging Face:
+
+```bash
+gym eval prepare --benchmark indic/ifbench
+```
+
+From a local copy of the release (`data/<lang>/train.jsonl`):
 
 ```bash
 gym eval prepare --benchmark indic/ifbench \
-  +prepare_script_args.dataset_dir=/path/to/ai4bharat_dataset/data
+  +prepare_script_args.dataset_dir=/path/to/IndicIFBench
 ```
 
 For a selected language set (aliases are accepted):
 
 ```bash
 gym eval prepare --benchmark indic/ifbench \
-  +prepare_script_args.dataset_dir=/path/to/ai4bharat_dataset/data \
-  '+prepare_script_args.languages=[bn,gu,hi,ka,mar,mal,ne,or,pa,ta,te,ur]'
+  '+prepare_script_args.languages=[as,bn,gu,hi,ka,mar,mal,ne,or,pa,sa,ta,te,ur]'
 ```
 
 The standalone preparer is also available:
 
 ```bash
 python -m benchmarks.indic.ifbench.prepare \
-  --dataset-dir /path/to/ai4bharat_dataset/data \
   --languages hi ur --output-fpath /tmp/indic-ifbench-hi-ur.jsonl
 ```
 
@@ -102,13 +108,8 @@ python -m benchmarks.indic.ifbench.summarize results/indic-ifbench.jsonl \
 The summarizer counts each repeat as an attempt, rejects incompatible evaluator
 versions, and reports excluded verifier failures. Overall accuracy weights all
 attempts/instructions; macro accuracy weights each language equally, which matters
-because Urdu has fewer rows. Partial runs report only evaluated rows/languages.
+because languages have different numbers of rows. Partial runs report only evaluated rows/languages.
 
-This is an experimental evaluator created for these translations. Read its
-[versioned language policy](../../../resources_servers/indic_ifbench/README.md#version-2-language-policy),
-especially the exact-match lexical inventories and orthographic syllable
-approximation. Native-speaker review and real-model baselining are still required
-before setting `verified: true` or treating the scores as an official reference.
-The [language audit](../../../resources_servers/indic_ifbench/language-audit.md)
-records fixes and remaining review items. Version 2 scores require reverification
-of responses previously evaluated with version 1; do not mix evaluator versions.
+The checkers are the IFBench checkers adapted per language; their conventions are in the
+[language audit](../../../resources_servers/indic_ifbench/language-audit.md). Do not mix evaluator versions:
+reverify responses scored with an earlier version.

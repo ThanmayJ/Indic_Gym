@@ -1,0 +1,56 @@
+{
+  "language": "Marathi",
+  "script": "devanagari",
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…",
+    "।",
+    "॥",
+    "|"
+  ],
+  "declarative_end": [
+    ".",
+    "।",
+    "॥",
+    "|"
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [
+    "।",
+    "॥",
+    "॰"
+  ],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "डॉ",
+    "श्री",
+    "सौ",
+    "कु",
+    "प्रा",
+    "इ.स",
+    "इ.स.पू",
+    "उदा",
+    "पृ"
+  ],
+  "extra_consonants": [],
+  "abbreviations_reviewed": false
+}

@@ -1,0 +1,45 @@
+{
+  "language": "Gujarati",
+  "script": "gujarati",
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…"
+  ],
+  "declarative_end": [
+    "."
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "ડૉ",
+    "ડો",
+    "શ્રી",
+    "શ્રીમતી",
+    "પ્રો",
+    "ઈ.સ",
+    "ઈ.સ.પૂ",
+    "દા.ત"
+  ],
+  "extra_consonants": [],
+  "abbreviations_reviewed": false
+}

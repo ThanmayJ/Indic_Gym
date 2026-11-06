@@ -4,7 +4,7 @@ indic_ifbench:
       entrypoint: app.py
       domain: instruction_following
       verified: false
-      description: Indic IFBench with deterministic Unicode-aware checks for twelve languages
+      description: Indic IFBench (14 languages, human-verified) scored with the IFBench checkers adapted per language
       value: Evaluate translated instruction constraints with language-specific rules
 
 indic_ifbench_simple_agent:

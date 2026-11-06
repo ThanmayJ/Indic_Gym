@@ -1,0 +1,62 @@
+{
+  "language": "Sindhi",
+  "script": "devanagari",
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…",
+    "।",
+    "॥",
+    "|"
+  ],
+  "declarative_end": [
+    ".",
+    "।",
+    "॥",
+    "|"
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [
+    "।",
+    "॥",
+    "॰"
+  ],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "डॉ",
+    "श्री",
+    "श्रीमती",
+    "प्रो"
+  ],
+  "extra_consonants": [
+    "ॻ",
+    "ॼ",
+    "ॾ",
+    "ॿ"
+  ],
+  "alphabet_after": {
+    "ॻ": "ग",
+    "ॼ": "ज",
+    "ॾ": "ड",
+    "ॿ": "ब"
+  },
+  "abbreviations_reviewed": false
+}

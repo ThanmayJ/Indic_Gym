@@ -9,9 +9,11 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 
-LANGUAGES = ("bn", "gu", "hi", "kn", "mr", "ml", "ne", "or", "pa", "ta", "te", "ur")
+# New languages are appended so that existing task ids (language index * 1e6 + key) stay stable.
+LANGUAGES = ("bn", "gu", "hi", "kn", "mr", "ml", "ne", "or", "pa", "ta", "te", "ur", "as", "sa")
 ALIASES = {"ka": "kn", "mar": "mr", "mal": "ml"}
-EVALUATOR_VERSION = "indic-ifbench-v2"
+# v3: IFBench checkers adapted per language (evaluation.py), letters counted as single Unicode characters.
+EVALUATOR_VERSION = "indic-ifbench-v3"
 
 
 def normalize_language(language: str) -> str:
@@ -93,7 +95,21 @@ _FIXED = {
     "format:output_template": ("my_answer", "my_conclusion", "future_outlook"),
 }
 _NUMERIC = {"N", "small_n", "min_words", "max_words", "percentage", "n", "m", "n_start", "n_end"}
-_URDU_EXCLUDED = {"words:alphabet", "words:vowel", "words:consonants", "words:odd_even_syllables"}
+# Urdu has no alphabet-cycle rule; its vowel, consonant-cluster and syllable rules are in languages.py.
+_URDU_EXCLUDED = {"words:alphabet"}
+# Rows that ask for the answer in another language (e.g. "translate this into English") carry an extra scored
+# instruction response_language:<code> with no arguments; the row's other instructions are then checked in that
+# language (see evaluation.evaluate).
+RESPONSE_LANGUAGE_PREFIX = "response_language:"
+RESPONSE_LANGUAGES = ("en", "ru")
+
+
+def response_language(instruction_ids) -> str | None:
+    """The language a task's answer must be written in, if it differs from the task language."""
+    for instruction_id in instruction_ids:
+        if instruction_id.startswith(RESPONSE_LANGUAGE_PREFIX):
+            return instruction_id.removeprefix(RESPONSE_LANGUAGE_PREFIX)
+    return None
 
 
 def validate_instruction(
@@ -101,6 +117,12 @@ def validate_instruction(
 ) -> dict[str, JsonValue]:
     """Validate and compact source kwargs, retaining translated `_lang` values."""
     language = normalize_language(language)
+    if instruction_id.startswith(RESPONSE_LANGUAGE_PREFIX):
+        if instruction_id.removeprefix(RESPONSE_LANGUAGE_PREFIX) not in RESPONSE_LANGUAGES:
+            raise ValueError(f"Unsupported instruction {instruction_id!r} for {language}")
+        if any(v is not None for v in kwargs.values()):
+            raise ValueError(f"{instruction_id} takes no arguments")
+        return {}
     if instruction_id not in INSTRUCTION_ARGS or (language == "ur" and instruction_id in _URDU_EXCLUDED):
         raise ValueError(f"Unsupported instruction {instruction_id!r} for {language}")
     required = INSTRUCTION_ARGS[instruction_id]

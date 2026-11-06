@@ -1,0 +1,52 @@
+{
+  "language": "Odia",
+  "script": "odia",
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…",
+    "।",
+    "॥",
+    "|"
+  ],
+  "declarative_end": [
+    ".",
+    "।",
+    "॥",
+    "|"
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [
+    "।",
+    "॥"
+  ],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "ଡା",
+    "ଶ୍ରୀ",
+    "ଶ୍ରୀମତୀ",
+    "ପ୍ରୋ",
+    "ଖ୍ରୀ",
+    "ଖ୍ରୀ.ପୂ"
+  ],
+  "extra_consonants": [],
+  "abbreviations_reviewed": false
+}

@@ -68,7 +68,12 @@ class IndicIFBenchResourcesServer(SimpleResourcesServer):
         try:
             async with self._semaphore:
                 strict, loose = await asyncio.to_thread(
-                    evaluate, body.instruction_id_list, body.kwargs, language=body.language, response=text
+                    evaluate,
+                    body.instruction_id_list,
+                    body.kwargs,
+                    language=body.language,
+                    response=text,
+                    prompt=body.prompt,
                 )
         except Exception as exc:
             # A verifier defect is not evidence of a model failure. Keep it visible

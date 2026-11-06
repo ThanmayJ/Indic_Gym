@@ -1,0 +1,47 @@
+{
+  "language": "Russian",
+  "auxiliary": true,
+  "script": null,
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…"
+  ],
+  "declarative_end": [
+    "."
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "т.е",
+    "т.к",
+    "т.д",
+    "т.п",
+    "г",
+    "гг",
+    "см",
+    "проф",
+    "др"
+  ],
+  "abbreviations_reviewed": false,
+  "extra_consonants": []
+}

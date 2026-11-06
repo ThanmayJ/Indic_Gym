@@ -1,3 +1,9 @@
 -e nemo-gym[dev] @ ../../
-regex==2026.9.29
+# The upstream IFBench package the checkers build on (cloned at a pinned commit by setup_ifbench.py) and its dependencies
+absl-py
+langdetect==1.0.9
+nltk
+immutabledict
 emoji==2.16.0
+syllapy>=0.8.0
+regex==2026.9.29

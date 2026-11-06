@@ -1,3 +1,7 @@
 *
 !.gitignore
 !example.jsonl
+# Per-language configs and word lists used by the checkers
+!languages/
+!languages/*/
+!languages/*/*.json

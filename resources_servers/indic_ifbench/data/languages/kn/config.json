@@ -1,0 +1,45 @@
+{
+  "language": "Kannada",
+  "script": "kannada",
+  "sentence_end": [
+    ".",
+    "!",
+    "?",
+    "…"
+  ],
+  "declarative_end": [
+    "."
+  ],
+  "interrogative_end": [
+    "?"
+  ],
+  "exclamatory_end": [
+    "!"
+  ],
+  "punctuation": [],
+  "abbreviations": [
+    "dr",
+    "mr",
+    "mrs",
+    "ms",
+    "prof",
+    "st",
+    "jr",
+    "sr",
+    "vs",
+    "etc",
+    "e.g",
+    "i.e",
+    "no",
+    "ಡಾ",
+    "ಶ್ರೀ",
+    "ಶ್ರೀಮತಿ",
+    "ಪ್ರೊ",
+    "ಕ್ರಿ.ಪೂ",
+    "ಕ್ರಿ.ಶ",
+    "ಉದಾ"
+  ],
+  "extra_consonants": [],
+  "abbreviations_reviewed": false,
+  "keyword_stem_matching": true
+}
